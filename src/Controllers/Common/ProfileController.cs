@@ -11,9 +11,11 @@ public class ProfileController : Controller {
 
     private readonly DBContext ctx;
     private AchievementService achievementService;
-    public ProfileController(DBContext ctx, AchievementService achievementService) {
+    private ProfileService profileService;
+    public ProfileController(DBContext ctx, AchievementService achievementService, ProfileService profileService) {
         this.ctx = ctx;
         this.achievementService = achievementService;
+        this.profileService = profileService;
     }
 
     [HttpPost]
@@ -55,49 +57,20 @@ public class ProfileController : Controller {
     }
 
     [HttpPost]
-    [Produces("application/xml")]
+    // [Produces("application/xml")]
     [Route("ProfileWebService.asmx/GetQuestions")]
     public IActionResult GetQuestions() {
-		return Ok(new ProfileQuestionData {
-            Lists = new ProfileQuestionList[] {
-                new ProfileQuestionList {
-                    ID = 4,
-                    Questions = new ProfileQuestion[] {
-                        new ProfileQuestion {
-                            CategoryID = 3,
-                            IsActive = "true", // this is a string, which makes me sad
-                            Locale = "en-US",
-                            Ordinal = 1,
-                            ID = 48,
-                            DisplayText = "How Did You Hear About US ?",
-                            Answers = new ProfileAnswer[] {
-                                new ProfileAnswer {
-                                    ID = 320,
-                                    DisplayText = "TV Commercial",
-                                    Locale = "en-US",
-                                    Ordinal = 1,
-                                    QuestionID = 48
-                                },
-                                new ProfileAnswer {
-                                    ID = 324,
-                                    DisplayText = "I bought the RIders Of Berk DVD",
-                                    Locale = "en-US",
-                                    Ordinal = 5,
-                                    QuestionID = 48
-                                },
-                                new ProfileAnswer {
-                                    ID = 325,
-                                    DisplayText = "I bought the Defenders of Berk DVD",
-                                    Locale = "en-US",
-                                    Ordinal = 6,
-                                    QuestionID = 48
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        return Ok(XmlUtil.ReadResourceXmlString("questiondata"));
+    }
+
+    [HttpPost]
+    [Produces("application/xml")]
+    [Route("ProfileWebService.asmx/SetUserProfileAnswers")]
+    [VikingSession]
+    public IActionResult SetUserProfileAnswers(Viking viking, [FromForm] int profileAnswerIDs)
+    {
+        ProfileQuestion questionFromaId = profileService.GetQuestionFromAnswerId(profileAnswerIDs);
+        return Ok(profileService.SetAnswer(viking, questionFromaId.ID, profileAnswerIDs));
     }
     
     [HttpPost]
@@ -111,9 +84,11 @@ public class ProfileController : Controller {
     private UserProfileData GetProfileDataFromViking(Viking viking, [FromForm] string apiKey) {
         // Get the avatar data
         AvatarData avatarData = null;
+        Gender gender = Gender.Male;
         if (viking.AvatarSerialized is not null) {
             avatarData = XmlUtil.DeserializeXml<AvatarData>(viking.AvatarSerialized);
             avatarData.Id = viking.Id;
+            gender = avatarData.GenderType;
         }
 
         if (avatarData != null && ClientVersion.GetVersion(apiKey) == 0xa3a12a0a) { // TODO adjust version number: we don't know for which versions it is required (for 3.12 it is, for 3.19 and 3.0 it's not)
@@ -141,7 +116,7 @@ public class ProfileController : Controller {
                 FirstName = viking.Name,
                 MultiplayerEnabled = ClientVersion.IsMultiplayerSupported(apiKey),
                 Locale = "en-US", // placeholder
-                GenderID = Gender.Male, // placeholder
+                GenderID = gender,
                 OpenChatEnabled = true,
                 IsApproved = true,
                 RegistrationDate = new DateTime(DateTime.Now.Ticks), // placeholder
@@ -174,7 +149,7 @@ public class ProfileController : Controller {
             AvatarInfo = avatar,
             AchievementCount = 0,
             MythieCount = 0,
-            AnswerData = new UserAnswerData { UserID = viking.Uid.ToString() },
+            AnswerData = new UserAnswerData { UserID = viking.Uid.ToString(), Answers = profileService.GetUserAnswers(viking)},
             GameCurrency = currency.GameCurrency,
             CashCurrency = currency.CashCurrency,
             ActivityCount = 0,

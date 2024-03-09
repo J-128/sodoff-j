@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 
 builder.Services.Configure<AssetServerConfig>(builder.Configuration.GetSection("AssetServer"));
+builder.Services.Configure<ApiServerConfig>(builder.Configuration.GetSection("ApiServer"));
 builder.Services.AddControllers(options => {
     options.OutputFormatters.Add(new XmlSerializerOutputFormatter(new XmlWriterSettings() { OmitXmlDeclaration = false }));
     options.OutputFormatters.RemoveType<HttpNoContentOutputFormatter>();
@@ -20,11 +21,14 @@ builder.Services.AddControllers(options => {
 });
 builder.Services.AddDbContext<DBContext>();
 
-builder.Services.AddSingleton<ModdingService>();
+// create Modding Service singleton here ... do this before start http server to avoid serve invalid assets list
+builder.Services.AddSingleton<ModdingService>(new ModdingService());
+// other singletons will be created at first use ...
 builder.Services.AddSingleton<MissionStoreSingleton>();
 builder.Services.AddSingleton<AchievementStoreSingleton>();
 builder.Services.AddSingleton<ItemService>();
 builder.Services.AddSingleton<StoreService>();
+builder.Services.AddSingleton<DisplayNamesService>();
 
 builder.Services.AddScoped<KeyValueService>();
 builder.Services.AddScoped<MissionService>();
@@ -32,6 +36,7 @@ builder.Services.AddScoped<RoomService>();
 builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<AchievementService>();
 builder.Services.AddScoped<GameDataService>();
+builder.Services.AddScoped<ProfileService>();
 
 bool assetServer = builder.Configuration.GetSection("AssetServer").GetValue<bool>("Enabled");
 string assetIP = builder.Configuration.GetSection("AssetServer").GetValue<string>("ListenIP");
@@ -49,10 +54,6 @@ var app = builder.Build();
 using var scope = app.Services.CreateScope();
 
 scope.ServiceProvider.GetRequiredService<DBContext>().Database.EnsureCreated();
-
-// create Modding Service singleton ... do this before start http server to avoid serve invalid assets list
-
-new ModdingService();
 
 // Configure the HTTP request pipeline.
 

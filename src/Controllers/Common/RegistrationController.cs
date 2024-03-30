@@ -64,30 +64,21 @@ public class RegistrationController : Controller {
 
         // Check if user exists
         uint gameVersion = ClientVersion.GetVersion(apiKey);
-        if (gameVersion == ClientVersion.WoJS || gameVersion == ClientVersion.MB) {
+        if (gameVersion <= ClientVersion.Max_OldJS) {
             if (ctx.Users.Count(e => e.Email == u.Email) > 0) {
                 return Ok(new RegistrationResult { Status = MembershipUserStatus.DuplicateEmail });
             }
         }
         if (ctx.Users.Count(e => e.Username== u.Username) > 0) {
             return Ok(new RegistrationResult { Status = MembershipUserStatus.DuplicateUserName });
-        }  
-
-        ctx.Users.Add(u);
-
-        if(gameVersion == ClientVersion.MB) {
-            Viking v = new Viking {
-                Uid = Guid.NewGuid(),
-                Name = data.ChildList[0].ChildName,
-                User = u,
-                InventoryItems = new List<InventoryItem>(),
-                AchievementPoints = new List<AchievementPoints>(),
-                Rooms = new List<Room>()
-            };
-            ctx.Vikings.Add(v);
         }
 
+        ctx.Users.Add(u);
         ctx.SaveChanges();
+
+        if (gameVersion <= ClientVersion.Max_OldJS) {
+            CreateViking(u, data.ChildList[0], gameVersion);
+        }
 
         ParentLoginInfo pli = new ParentLoginInfo {
             UserName = u.Username,
@@ -132,9 +123,19 @@ public class RegistrationController : Controller {
             return Ok(new RegistrationResult { Status = MembershipUserStatus.DuplicateUserName });
         }
 
-        List<InventoryItem> items = new() {
-            new InventoryItem { ItemId = 8977, Quantity = 1 } // DragonStableINTDO - Dragons Dragon Stable
-        };
+        Viking v = CreateViking(user, data, ClientVersion.GetVersion(apiKey));
+
+        return Ok(new RegistrationResult {
+            UserID = v.Uid.ToString(),
+            Status = MembershipUserStatus.Success
+        });
+    }
+
+    private Viking CreateViking(User user, ChildRegistrationData data, uint gameVersion) {
+        List<InventoryItem> items = new();
+        if (gameVersion >= ClientVersion.Min_SoD) {
+            items.Add( new InventoryItem { ItemId = 8977, Quantity = 1 } ); // DragonStableINTDO - Dragons Dragon Stable
+        }
 
         Viking v = new Viking {
             Uid = Guid.NewGuid(),
@@ -142,16 +143,20 @@ public class RegistrationController : Controller {
             User = user,
             InventoryItems = items,
             AchievementPoints = new List<AchievementPoints>(),
-            Rooms = new List<Room>()
+            Rooms = new List<Room>(),
+            CreationDate = DateTime.UtcNow,
+            BirthDate = data.BirthDate
         };
 
-        uint gameVersion = ClientVersion.GetVersion(apiKey);
         missionService.SetUpMissions(v, gameVersion);
+
+        if (data.Gender == "Boy") v.Gender = Gender.Male;
+        else if (data.Gender == "Girl") v.Gender = Gender.Female;
 
         ctx.Vikings.Add(v);
         ctx.SaveChanges();
 
-        if (gameVersion < 0xa2a09a0a) {
+        if (gameVersion >= ClientVersion.MaM && gameVersion < 0xa2a09a0a) {
             keyValueService.SetPairData(null, v, null, 2017, new Schema.PairData {
                 Pairs = new Schema.Pair[]{
                     new Schema.Pair {
@@ -165,9 +170,6 @@ public class RegistrationController : Controller {
 
         roomService.CreateRoom(v, "MyRoomINT");
 
-        return Ok(new RegistrationResult {
-            UserID = v.Uid.ToString(),
-            Status = MembershipUserStatus.Success
-        });
+        return v;
     }
 }
